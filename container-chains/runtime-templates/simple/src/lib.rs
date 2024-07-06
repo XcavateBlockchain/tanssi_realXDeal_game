@@ -43,7 +43,7 @@ use {
         pallet_prelude::DispatchResult,
         parameter_types,
         traits::{
-            ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, Contains, InsideBoth, InstanceFilter,
+            AsEnsureOriginWithArg, ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, Contains, InsideBoth, InstanceFilter,
         },
         weights::{
             constants::{
@@ -53,10 +53,11 @@ use {
             ConstantMultiplier, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
             WeightToFeePolynomial,
         },
+        PalletId,
     },
     frame_system::{
         limits::{BlockLength, BlockWeights},
-        EnsureRoot,
+        EnsureRoot, EnsureSigned,
     },
     nimbus_primitives::{NimbusId, SlotBeacon},
     pallet_transaction_payment::FungibleAdapter,
@@ -75,7 +76,10 @@ use {
     },
     sp_std::prelude::*,
     sp_version::RuntimeVersion,
+    pallet_nfts::PalletFeatures,
 };
+
+pub use pallet_game;
 
 pub mod xcm_config;
 
@@ -125,7 +129,10 @@ pub type SignedExtra = (
     frame_system::CheckEra<Runtime>,
     frame_system::CheckNonce<Runtime>,
     frame_system::CheckWeight<Runtime>,
-    pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    pallet_skip_feeless_payment::SkipCheckIfFeeless<
+        Runtime,
+        pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    >,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -399,6 +406,97 @@ impl pallet_transaction_payment::Config for Runtime {
     type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
 }
 
+
+parameter_types! {
+	pub Features: PalletFeatures = PalletFeatures::all_enabled();
+	pub const MaxAttributesPerCall: u32 = 10;
+	pub const CollectionDeposit: Balance = UNIT;
+	pub const ItemDeposit: Balance = UNIT;
+	pub const MetadataDepositBase: Balance = UNIT;
+	pub const MetadataDepositPerByte: Balance = UNIT / 100;
+	pub const StringLimit: u32 = 5000;
+	pub const KeyLimit: u32 = 32;
+	pub const ValueLimit: u32 = 256;
+	pub const ApprovalsLimit: u32 = 20;
+	pub const ItemAttributesApprovalsLimit: u32 = 20;
+	pub const MaxTips: u32 = 10;
+	pub const MaxDeadlineDuration: BlockNumber = 12 * 30 * DAYS;
+
+	pub const UserStringLimit: u32 = 5;
+
+}
+
+impl pallet_nfts::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type CollectionId = u32;
+	type ItemId = u32;
+	type Currency = Balances;
+	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+	type CollectionDeposit = CollectionDeposit;
+	type ItemDeposit = ItemDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type AttributeDepositBase = MetadataDepositBase;
+	type DepositPerByte = MetadataDepositPerByte;
+	type StringLimit = StringLimit;
+	type KeyLimit = KeyLimit;
+	type ValueLimit = ValueLimit;
+	type ApprovalsLimit = ApprovalsLimit;
+	type ItemAttributesApprovalsLimit = ItemAttributesApprovalsLimit;
+	type MaxTips = MaxTips;
+	type MaxDeadlineDuration = MaxDeadlineDuration;
+	type MaxAttributesPerCall = MaxAttributesPerCall;
+	type Features = Features;
+	type OffchainSignature = Signature;
+	type OffchainPublic = <Signature as Verify>::Signer;
+	type WeightInfo = pallet_nfts::weights::SubstrateWeight<Runtime>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type Helper = ();
+	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+	type Locker = ();
+}
+
+impl pallet_insecure_randomness_collective_flip::Config for Runtime {}
+
+impl pallet_skip_feeless_payment::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct MaxProperties;
+
+impl sp_core::Get<u32> for MaxProperties {
+	fn get() -> u32 {
+		100
+	}
+}
+
+parameter_types! {
+	pub const GamePalletId: PalletId = PalletId(*b"py/rlxdl");
+	pub const MaxOngoingGame: u32 = 200;
+	pub const LeaderLimit: u32 = 10;
+	pub const MaxAdmin: u32 = 10;
+	pub const RequestLimits: BlockNumber = 100800;
+	pub const GameStringLimit: u32 = 500;
+}
+
+/// Configure the pallet-game in pallets/game.
+impl pallet_game::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type WeightInfo = pallet_game::weights::SubstrateWeight<Runtime>;
+	type GameOrigin = EnsureRoot<Self::AccountId>;
+	type CollectionId = u32;
+	type ItemId = u32;
+	type MaxProperty = MaxProperties;
+	type PalletId = GamePalletId;
+	type MaxOngoingGames = MaxOngoingGame;
+	type GameRandomness = RandomnessCollectiveFlip;
+	type StringLimit = GameStringLimit;
+	type LeaderboardLimit = LeaderLimit;
+	type MaxAdmins = MaxAdmin;
+	type RequestLimit = RequestLimits;
+}
+
 parameter_types! {
     pub const ReservedXcmpWeight: Weight = MAXIMUM_BLOCK_WEIGHT.saturating_div(4);
     pub const ReservedDmpWeight: Weight = MAXIMUM_BLOCK_WEIGHT.saturating_div(4);
@@ -659,9 +757,15 @@ construct_runtime!(
         // Monetary stuff.
         Balances: pallet_balances = 10,
         TransactionPayment: pallet_transaction_payment = 11,
+        SkipFeelessPayment: pallet_skip_feeless_payment = 12,
 
         // Other utilities
         Multisig: pallet_multisig = 16,
+        Nfts: pallet_nfts = 17,
+		RandomnessCollectiveFlip: pallet_insecure_randomness_collective_flip = 18,
+
+        // Custom pallets
+        GameModule: pallet_game = 20,
 
         // ContainerChain Author Verification
         AuthoritiesNoting: pallet_cc_authorities_noting = 50,
@@ -707,6 +811,8 @@ mod benches {
         [pallet_foreign_asset_creator, ForeignAssetsCreator]
         [pallet_asset_rate, AssetRate]
         [pallet_xcm_executor_utils, XcmExecutorUtils]
+        [pallet_nfts, Nfts]
+        [pallet_game, GameModule]
     );
 }
 
