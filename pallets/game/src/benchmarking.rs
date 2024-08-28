@@ -316,7 +316,6 @@ mod benchmarks {
 		let new_property = PropertyInfoData {
 			id: 147031382,
 			data: "nfdjakl;fueif;janf,dnfm,dhfhfdksks".as_bytes().to_vec().try_into().unwrap(),
-			price: "kkjfkdjdkdjdkdjdk".as_bytes().to_vec().try_into().unwrap(),
 		};
 		#[extrinsic_call]
 		add_property(RawOrigin::Root, new_property);

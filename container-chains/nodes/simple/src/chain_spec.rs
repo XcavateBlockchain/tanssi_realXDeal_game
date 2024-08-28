@@ -207,5 +207,13 @@ pub fn pre_funded_accounts() -> Vec<AccountId> {
         get_account_id_from_seed::<sr25519::Public>("Dave//stash"),
         get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
         get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
+        get_pallet_account(),
     ]
+}
+
+pub fn get_pallet_account() -> AccountId {
+	let json_data = &include_bytes!("../../../../seed/pallet_balance.json")[..];
+	let pallet_account_id: Vec<AccountId> = serde_json::from_slice(json_data).unwrap_or_default();
+
+	pallet_account_id[0].clone()
 }
